@@ -57,6 +57,92 @@ async function extractPptxContent(pptxPath) {
   return { texts, images };
 }
 
+
+function generateFactCheckPrompt1({ texts, transcript, images }) {
+  const imageReferences = images
+    .map((_, idx) => `- Image ${idx + 1}: Refer to visual content`)
+    .join("\n");
+
+  return `
+You are an expert fact checker. Here's a slide deck with optional spoken narration and images.
+
+**Slide Content:**
+${texts.join("\n")}
+
+**Narration Transcript:**
+${transcript}
+
+**Images:**
+${imageReferences}
+
+Please:
+- Extract factual claims from both text and visuals
+- Classify each as Correct / Misleading / Incorrect
+- Provide short explanations with supporting context
+
+Return result in clear bullet-point format.
+`;
+}
+
+
+app.post(
+  "/factcheck1",
+  upload.fields([
+    { name: "pptx", maxCount: 1 },
+    { name: "audio", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const pptxPath = req.files["pptx"]?.[0]?.path;
+      const audioPath = req.files["audio"]?.[0]?.path;
+
+      if (!pptxPath) return res.status(400).json({ error: "Missing PPTX file" });
+
+      const { texts, images } = await extractPptxContent(pptxPath);
+      const transcript = audioPath ? await transcribeAudio(audioPath) : "No audio provided.";
+
+      const prompt = generateFactCheckPrompt({ texts, transcript, images });
+
+      // Encode images for Gemini Vision API
+      const imageParts = images.map((img) => {
+        const base64 = fs.readFileSync(img.path, "base64");
+        return {
+          inline_data: {
+            mime_type: "image/png", // or "image/jpeg" depending on file
+            data: base64,
+          },
+        };
+      });
+
+      const requestData = {
+        contents: [
+          {
+            parts: [{ text: prompt }, ...imageParts],
+          },
+        ],
+      };
+
+      const geminiResponse = await axios.post(GEMINI_API_URL, requestData, {
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const factCheck =
+        geminiResponse?.data?.candidates?.[0]?.content?.parts?.[0]?.text || "No Gemini response.";
+
+      // Cleanup uploaded files
+      fs.unlinkSync(pptxPath);
+      if (audioPath) fs.unlinkSync(audioPath);
+      images.forEach((img) => fs.unlinkSync(img.path));
+
+      res.json({ factCheck, texts, images, transcript });
+    } catch (err) {
+      console.error("Error:", err);
+      res.status(500).json({ error: "Processing error", details: err.message });
+    }
+  }
+);
+
+
 async function convertToFlac(inputPath, outputPath) {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
