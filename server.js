@@ -16,10 +16,6 @@ app.use(cors());
 app.use(express.json());
 
 
-const GEMINI_API_KEY = 'AIzaSyDSnR_pRyH7lZ1A0TmCJIIhGgLxDO89sDo';
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_API_KEY}`;
-const ASSEMBLYAI_API_KEY = '3b7f8a7080da48c194734ca08ef56d18';
-
 const upload = multer({ dest: "uploads/" });
 
 async function extractPptxContent(pptxPath) {
